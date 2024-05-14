@@ -1,0 +1,11 @@
+{
+  "description": "Your content driven static site generator.",
+  "homepage": "https://cecil.app",
+  "license": "MIT",
+  "bin": "cecil.phar",
+  "suggest": {
+    "PHP": ["php", "php-nts"]
+  },
+  "url": "https://github.com/Cecilapp/Cecil/releases/download/8.10.0/cecil.phar",
+  "version": "8.10.0"
+}
