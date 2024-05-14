@@ -11,12 +11,12 @@
   "version": "8.10.0",
   "checkver": {
     "url": "https://cecil.app/VERSION",
-    "regex": ".*"
+    "regex": "([\\d.]+)"
   },
   "autoupdate": {
     "url": "https://cecil.app/download/$version/cecil.phar",
     "hash": {
-      "url": "https://cecil.app/download/$version/cecil.phar.sha1"
+      "url": "$url.sha1"
     }
   }
 }
