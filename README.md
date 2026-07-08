@@ -4,7 +4,7 @@
 
 ## Usage
 
-With [Scoop installed](https://github.com/ScoopInstaller/Install#readme), make sure to add the Bucket:
+With [Scoop installed](https://github.com/ScoopInstaller/Install#readme), make sure to add the bucket:
 
 ```
 scoop bucket add cecil https://github.com/Cecilapp/scoop
@@ -19,5 +19,5 @@ scoop install cecil/cecil
 Install specific version:
 
 ```
-scoop install cecil/8.115.0
+scoop install cecil/cecil-8.115.0
 ```
