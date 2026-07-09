@@ -1,0 +1,65 @@
+name: Update Scoop manifest
+description: >-
+  Update the Scoop manifest bucket/cecil.json (and create the pinned
+  bucket/cecil-<version>.json) from url, version and hash, then commit and push.
+
+inputs:
+  url:
+    description: Download URL of the .phar file.
+    required: true
+  version:
+    description: Version number (e.g. 8.115.0).
+    required: true
+  hash:
+    description: SHA-1 hash (raw hex value, without the "sha1:" prefix).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Update manifests
+      shell: bash
+      env:
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_HASH: ${{ inputs.hash }}
+      run: |
+        set -euo pipefail
+
+        manifest="bucket/cecil.json"
+        pinned="bucket/cecil-${INPUT_VERSION}.json"
+
+        # Update the rolling manifest (url, version, hash).
+        tmp="$(mktemp)"
+        jq \
+          --arg url "$INPUT_URL" \
+          --arg version "$INPUT_VERSION" \
+          --arg hash "sha1:${INPUT_HASH}" \
+          '.url = $url | .version = $version | .hash = $hash' \
+          "$manifest" > "$tmp"
+        mv "$tmp" "$manifest"
+
+        # Create the pinned manifest (no auto-update).
+        jq 'del(.checkver, .autoupdate)' "$manifest" > "$pinned"
+
+        echo "Updated $manifest and created $pinned"
+
+    - name: Commit and push
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git add bucket/
+
+        if git diff --cached --quiet; then
+          echo "No changes to commit."
+          exit 0
+        fi
+
+        git commit -m "chore: update Scoop manifest to ${INPUT_VERSION}"
+        git push
