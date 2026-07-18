@@ -2,6 +2,7 @@ name: Update Scoop manifest
 description: >-
   Update the Scoop manifest bucket/cecil.json (and create the pinned
   bucket/cecil-<version>.json) from url, version and hash, then commit and push.
+  Can optionally target and update a different GitHub repository.
 
 inputs:
   url:
@@ -13,6 +14,26 @@ inputs:
   hash:
     description: SHA-1 hash (raw hex value, without the "sha1:" prefix).
     required: true
+  target_repository:
+    description: >-
+      Optional target repository in owner/repo format. If empty, use the current
+      checked-out repository.
+    required: false
+    default: ""
+  target_branch:
+    description: Target branch to update in target_repository.
+    required: false
+    default: main
+  target_bucket_dir:
+    description: Bucket directory containing manifests.
+    required: false
+    default: bucket
+  github_token:
+    description: >-
+      GitHub token with contents:write on target_repository. Required when
+      target_repository is set.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -23,11 +44,37 @@ runs:
         INPUT_URL: ${{ inputs.url }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_HASH: ${{ inputs.hash }}
+        INPUT_TARGET_REPOSITORY: ${{ inputs.target_repository }}
+        INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
+        INPUT_TARGET_BUCKET_DIR: ${{ inputs.target_bucket_dir }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -euo pipefail
 
-        manifest="bucket/cecil.json"
-        pinned="bucket/cecil-${INPUT_VERSION}.json"
+        repo_dir="${GITHUB_WORKSPACE}"
+
+        if [ -n "${INPUT_TARGET_REPOSITORY}" ]; then
+          if [ -z "${INPUT_GITHUB_TOKEN}" ]; then
+            echo "Input github_token is required when target_repository is set."
+            exit 1
+          fi
+
+          workdir="$(mktemp -d)"
+          clone_url="https://x-access-token:${INPUT_GITHUB_TOKEN}@github.com/${INPUT_TARGET_REPOSITORY}.git"
+
+          git clone --depth 1 --branch "${INPUT_TARGET_BRANCH}" "${clone_url}" "${workdir}/repo"
+          repo_dir="${workdir}/repo"
+        fi
+
+        echo "TARGET_REPO_DIR=${repo_dir}" >> "${GITHUB_ENV}"
+
+        manifest="${repo_dir}/${INPUT_TARGET_BUCKET_DIR}/cecil.json"
+        pinned="${repo_dir}/${INPUT_TARGET_BUCKET_DIR}/cecil-${INPUT_VERSION}.json"
+
+        if [ ! -f "${manifest}" ]; then
+          echo "Manifest not found: ${manifest}"
+          exit 1
+        fi
 
         # Update the rolling manifest (url, version, hash).
         tmp="$(mktemp)"
@@ -36,30 +83,45 @@ runs:
           --arg version "$INPUT_VERSION" \
           --arg hash "sha1:${INPUT_HASH}" \
           '.url = $url | .version = $version | .hash = $hash' \
-          "$manifest" > "$tmp"
-        mv "$tmp" "$manifest"
+          "${manifest}" > "$tmp"
+        mv "$tmp" "${manifest}"
 
         # Create the pinned manifest (no auto-update).
-        jq 'del(.checkver, .autoupdate)' "$manifest" > "$pinned"
+        jq 'del(.checkver, .autoupdate)' "${manifest}" > "${pinned}"
 
-        echo "Updated $manifest and created $pinned"
+        echo "Updated ${manifest} and created ${pinned}"
 
     - name: Commit and push
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
+        INPUT_TARGET_REPOSITORY: ${{ inputs.target_repository }}
+        INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
+        INPUT_TARGET_BUCKET_DIR: ${{ inputs.target_bucket_dir }}
       run: |
         set -euo pipefail
 
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        repo_dir="${TARGET_REPO_DIR:-${GITHUB_WORKSPACE}}"
 
-        git add bucket/
+        if [ ! -d "${repo_dir}" ]; then
+          echo "Target repository directory not found: ${repo_dir}"
+          exit 1
+        fi
 
-        if git diff --cached --quiet; then
+        git -C "${repo_dir}" config user.name "github-actions[bot]"
+        git -C "${repo_dir}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git -C "${repo_dir}" add "${INPUT_TARGET_BUCKET_DIR}/"
+
+        if git -C "${repo_dir}" diff --cached --quiet; then
           echo "No changes to commit."
           exit 0
         fi
 
-        git commit -m "chore: update Scoop manifest to ${INPUT_VERSION}"
-        git push
+        git -C "${repo_dir}" commit -m "chore: update Scoop manifest to ${INPUT_VERSION}"
+
+        if [ -n "${INPUT_TARGET_REPOSITORY}" ]; then
+          git -C "${repo_dir}" push origin "HEAD:${INPUT_TARGET_BRANCH}"
+        else
+          git -C "${repo_dir}" push
+        fi
